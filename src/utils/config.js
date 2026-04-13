@@ -24,5 +24,7 @@ cfg.gasLimit      = cfg.gasLimit      || 21000;
 cfg.retryLimit    = cfg.retryLimit    || 3;
 cfg.retryDelay    = cfg.retryDelay    || 500;
 cfg.statsInterval = cfg.statsInterval || 2000;
+cfg.maxAttempts   = cfg.maxAttempts   || 0;
+cfg.telegram      = cfg.telegram      || { token: '', chatId: '' };
 
 module.exports = cfg;
