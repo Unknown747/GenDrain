@@ -21,9 +21,10 @@ function fail(field, pesan) {
   throw new Error(`\n[config.json → "${field}"] ${pesan}\n`);
 }
 
-function isPlaceholder(val) {
-  if (!val || typeof val !== 'string') return true;
-  const v = val.trim();
+// Cek apakah string masih placeholder / belum diisi
+function isPlaceholder(str) {
+  if (typeof str !== 'string') return false;
+  const v = str.trim();
   return (
     v === '' ||
     v.startsWith('ISI_') ||
@@ -34,35 +35,36 @@ function isPlaceholder(val) {
   );
 }
 
-// ── 1. destinationAddress (WAJIB) ────────────────────────────────────────────
+// ── 1. destinationAddress (WAJIB, harus string) ──────────────────────────────
+if (!raw.destinationAddress || typeof raw.destinationAddress !== 'string') {
+  fail('destinationAddress', 'Belum diisi!\n  Contoh: "destinationAddress": "0xAbCd1234..."');
+}
 if (isPlaceholder(raw.destinationAddress)) {
-  fail(
-    'destinationAddress',
-    'Belum diisi!\n  Ganti nilai di config.json dengan alamat ETH tujuan kamu.\n  Contoh: "destinationAddress": "0xAbCd1234..."'
-  );
+  fail('destinationAddress', 'Masih berupa placeholder!\n  Ganti dengan alamat ETH tujuan kamu.\n  Contoh: "destinationAddress": "0xAbCd1234..."');
 }
 if (!ethers.utils.isAddress(raw.destinationAddress)) {
-  fail(
-    'destinationAddress',
-    `Bukan alamat Ethereum yang valid.\n  Diterima : "${raw.destinationAddress}"\n  Contoh   : "0xAbCd1234...efGh5678"`
-  );
+  fail('destinationAddress', `Bukan alamat Ethereum yang valid.\n  Diterima : "${raw.destinationAddress}"\n  Contoh   : "0xAbCd1234...efGh5678"`);
 }
 
-// ── 2. providerURL (WAJIB) ───────────────────────────────────────────────────
-if (!raw.providerURL || isPlaceholder(raw.providerURL)) {
-  fail(
-    'providerURL',
-    'Belum diisi!\n  Contoh: "providerURL": "https://rpc.sepolia.org"'
-  );
+// ── 2. providerURL (WAJIB, bisa string atau array) ───────────────────────────
+if (!raw.providerURL) {
+  fail('providerURL', 'Belum diisi!\n  Contoh: "providerURL": "https://rpc.sepolia.org"');
 }
+// Normalkan ke array
 const rawUrls = Array.isArray(raw.providerURL) ? raw.providerURL : [raw.providerURL];
 if (rawUrls.length === 0) {
   fail('providerURL', 'Tidak boleh array kosong.');
 }
 rawUrls.forEach((url, i) => {
   const label = rawUrls.length > 1 ? `providerURL[${i}]` : 'providerURL';
-  if (typeof url !== 'string' || !url.startsWith('http')) {
-    fail(label, `Bukan URL yang valid → "${url}"`);
+  if (typeof url !== 'string' || url.trim() === '') {
+    fail(label, 'Belum diisi!');
+  }
+  if (isPlaceholder(url)) {
+    fail(label, `Masih berupa placeholder → "${url}"`);
+  }
+  if (!url.startsWith('http')) {
+    fail(label, `Bukan URL yang valid → "${url}"\n  Harus diawali dengan http:// atau https://`);
   }
 });
 
