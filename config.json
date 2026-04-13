@@ -1,0 +1,20 @@
+{
+  "destinationAddress": "ISI_ALAMAT_ETH_KAMU_DISINI",
+  "providerURL": [
+    "https://rpc.sepolia.org",
+    "https://ethereum-sepolia-rpc.publicnode.com",
+    "https://sepolia.drpc.org"
+  ],
+
+  "concurrency": 20,
+  "gasLimit": 21000,
+  "retryLimit": 3,
+  "retryDelay": 500,
+  "statsInterval": 2000,
+  "maxAttempts": 0,
+
+  "telegram": {
+    "token": "",
+    "chatId": ""
+  }
+}

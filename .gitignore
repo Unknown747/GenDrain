@@ -3,4 +3,3 @@ logs
 bin
 node_modules
 *.log
-config.json
