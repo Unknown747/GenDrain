@@ -70,10 +70,11 @@ rawUrls.forEach((url, i) => {
 
 // ── 3. Field angka — pakai default jika tidak diisi ──────────────────────────
 const DEFAULTS = {
-  concurrency:   20,
+  concurrency:   5,
+  batchSize:     50,
   gasLimit:      21000,
-  retryLimit:    3,
-  retryDelay:    500,
+  retryLimit:    2,
+  retryDelay:    200,
   statsInterval: 2000,
   maxAttempts:   0,
 };
@@ -88,6 +89,7 @@ function resolveInt(key) {
 }
 
 const concurrency   = resolveInt('concurrency');
+const batchSize     = resolveInt('batchSize');
 const gasLimit      = resolveInt('gasLimit');
 const retryLimit    = resolveInt('retryLimit');
 const retryDelay    = resolveInt('retryDelay');
@@ -110,6 +112,7 @@ module.exports = {
   destinationAddress: raw.destinationAddress.trim(),
   providerURL:        rawUrls.length === 1 ? rawUrls[0] : rawUrls,
   concurrency,
+  batchSize,
   gasLimit,
   retryLimit,
   retryDelay,

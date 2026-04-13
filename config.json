@@ -6,10 +6,11 @@
     "https://sepolia.drpc.org"
   ],
 
-  "concurrency": 20,
+  "concurrency": 5,
+  "batchSize": 50,
   "gasLimit": 21000,
-  "retryLimit": 3,
-  "retryDelay": 500,
+  "retryLimit": 2,
+  "retryDelay": 200,
   "statsInterval": 2000,
   "maxAttempts": 0,
 
