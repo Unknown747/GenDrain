@@ -1,26 +1,15 @@
-
 {
   "name": "draino",
-  "version": "0.0.1",
-  "description": "Drains randomly generated crypto wallets",
-  "main": "src/index.ts",
-  "repository": "https://github.com/djh58/draino",
-  "author": "Dan Hepworth",
+  "version": "0.0.2",
+  "description": "Drains randomly generated crypto wallets (Sepolia Testnet)",
+  "main": "src/index.js",
   "license": "MIT",
   "scripts": {
-    "setup": "yarn && mkdir -p logs",
-    "build": "tsc",
-    "start": "node ./bin/index.js",
-    "dev": "ts-node ./src/index.ts",
-    "clear": "rm ./logs/*"
+    "start": "node src/index.js",
+    "setup": "npm install && mkdir -p logs",
+    "clear": "rm -f ./logs/*"
   },
   "dependencies": {
-    "@types/node": "^16.11.1",
-    "dotenv": "^10.0.0",
-    "ethers": "^5.4.7",
-    "typescript": "^4.4.4"
-  },
-  "devDependencies": {
-    "ts-node": "^10.3.0"
+    "ethers": "^5.4.7"
   }
 }
