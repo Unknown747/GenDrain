@@ -1,11 +1,11 @@
 {
   "name": "draino",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Drains randomly generated crypto wallets (Sepolia Testnet)",
-  "main": "src/index.js",
+  "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
     "setup": "npm install && mkdir -p logs",
     "clear": "rm -f ./logs/*"
   },

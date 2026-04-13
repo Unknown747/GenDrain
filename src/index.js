@@ -1,14 +1,25 @@
 'use strict';
 
+const cfg     = require('./utils/config');
 const drainer = require('./drain');
 
-console.log('=== Draino ===');
-console.log('Network : Sepolia Testnet');
-console.log('Log     : ./logs/');
-console.log('Config  : config.json');
-console.log('==============');
+process.stdout.write('\x1b[2J\x1b[H');
+console.log('\x1b[36m╔══════════════════════════════════╗');
+console.log('║           D R A I N O           ║');
+console.log('╚══════════════════════════════════╝\x1b[0m');
+console.log(`  Network    : \x1b[33mSepolia Testnet\x1b[0m`);
+console.log(`  Workers    : \x1b[33m${cfg.concurrency}\x1b[0m`);
+console.log(`  Dest       : \x1b[33m${cfg.destinationAddress}\x1b[0m`);
+console.log(`  Logs       : \x1b[33m./logs/\x1b[0m`);
+console.log(`  Config     : \x1b[33mconfig.json\x1b[0m`);
+console.log('\x1b[36m══════════════════════════════════\x1b[0m\n');
+
+process.on('SIGINT', () => {
+  process.stdout.write('\n\n\x1b[31mDihentikan oleh pengguna.\x1b[0m\n');
+  process.exit(0);
+});
 
 drainer.run().catch((err) => {
-  console.error('Fatal error:', err.message);
+  console.error('\x1b[31m[Fatal]\x1b[0m', err.message);
   process.exit(1);
 });
