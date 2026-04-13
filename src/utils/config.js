@@ -4,45 +4,90 @@ const fs         = require('fs');
 const path       = require('path');
 const { ethers } = require('ethers');
 
+// ── Baca config.json ─────────────────────────────────────────────────────────
 const configPath = path.resolve(__dirname, '../../config.json');
-
-let cfg;
+let raw;
 try {
-  cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 } catch (err) {
   throw new Error(`Gagal membaca config.json: ${err.message}`);
 }
 
-function fail(msg) {
-  throw new Error(`\n[config.json] ${msg}\n`);
+function fail(field, pesan) {
+  throw new Error(`\n[config.json] "${field}": ${pesan}\n`);
 }
 
-// ── 1. destinationAddress (WAJIB) ────────────────────────────────────────────
-if (!cfg.destinationAddress || cfg.destinationAddress.trim() === '') {
-  fail('"destinationAddress" belum diisi.\nContoh: "destinationAddress": "0xAbc123..."');
+// ── Default untuk semua field opsional ───────────────────────────────────────
+const DEFAULTS = {
+  concurrency:   20,
+  gasLimit:      21000,
+  retryLimit:    3,
+  retryDelay:    500,
+  statsInterval: 2000,
+  maxAttempts:   0,
+};
+
+// ── Validasi: destinationAddress (WAJIB) ─────────────────────────────────────
+const dest = raw.destinationAddress;
+if (!dest || dest.trim() === '' || dest.startsWith('ISI_')) {
+  fail('destinationAddress', 'Belum diisi. Masukkan alamat ETH tujuan kamu.');
 }
-if (!ethers.utils.isAddress(cfg.destinationAddress)) {
-  fail(`"destinationAddress" bukan alamat Ethereum yang valid.\nDiterima: "${cfg.destinationAddress}"`);
+if (!ethers.utils.isAddress(dest)) {
+  fail('destinationAddress', `Bukan alamat Ethereum yang valid → "${dest}"`);
 }
 
-// ── 2. providerURL (WAJIB) ───────────────────────────────────────────────────
-if (!cfg.providerURL || (Array.isArray(cfg.providerURL) && cfg.providerURL.length === 0)) {
-  fail('"providerURL" belum diisi.\nContoh: "providerURL": "https://rpc.sepolia.org"');
+// ── Validasi: providerURL (WAJIB) ────────────────────────────────────────────
+const rawUrl = raw.providerURL;
+if (!rawUrl || (typeof rawUrl === 'string' && rawUrl.trim() === '') || rawUrl.startsWith('ISI_')) {
+  fail('providerURL', 'Belum diisi. Masukkan URL RPC Sepolia kamu.');
 }
-const urls = Array.isArray(cfg.providerURL) ? cfg.providerURL : [cfg.providerURL];
+if (Array.isArray(rawUrl) && rawUrl.length === 0) {
+  fail('providerURL', 'Tidak boleh array kosong.');
+}
+const urls = Array.isArray(rawUrl) ? rawUrl : [rawUrl];
 urls.forEach((url, i) => {
+  const label = urls.length > 1 ? `providerURL[${i}]` : 'providerURL';
   if (typeof url !== 'string' || !url.startsWith('http')) {
-    fail(`"providerURL${urls.length > 1 ? `[${i}]` : ''}" bukan URL yang valid.\nDiterima: "${url}"`);
+    fail(label, `Bukan URL yang valid → "${url}"`);
   }
 });
 
-// ── Semua setting lain pakai default otomatis ────────────────────────────────
-cfg.concurrency   = Number.isInteger(cfg.concurrency)   && cfg.concurrency   > 0 ? cfg.concurrency   : 20;
-cfg.gasLimit      = Number.isInteger(cfg.gasLimit)      && cfg.gasLimit      > 0 ? cfg.gasLimit      : 21000;
-cfg.retryLimit    = Number.isInteger(cfg.retryLimit)    && cfg.retryLimit    > 0 ? cfg.retryLimit    : 3;
-cfg.retryDelay    = Number.isInteger(cfg.retryDelay)    && cfg.retryDelay    >= 0 ? cfg.retryDelay   : 500;
-cfg.statsInterval = Number.isInteger(cfg.statsInterval) && cfg.statsInterval > 0 ? cfg.statsInterval : 2000;
-cfg.maxAttempts   = Number.isInteger(cfg.maxAttempts)   && cfg.maxAttempts   >= 0 ? cfg.maxAttempts  : 0;
-cfg.telegram      = (cfg.telegram && cfg.telegram.token && cfg.telegram.chatId) ? cfg.telegram : { token: '', chatId: '' };
+// ── Validasi & terapkan default untuk field angka ────────────────────────────
+function resolveInt(key) {
+  const val = raw[key];
+  if (val === undefined || val === null) return DEFAULTS[key];
+  if (!Number.isInteger(val) || val < 0) {
+    fail(key, `Harus bilangan bulat >= 0, diterima: ${val}`);
+  }
+  return val;
+}
 
-module.exports = cfg;
+const concurrency   = resolveInt('concurrency');
+const gasLimit      = resolveInt('gasLimit');
+const retryLimit    = resolveInt('retryLimit');
+const retryDelay    = resolveInt('retryDelay');
+const statsInterval = resolveInt('statsInterval');
+const maxAttempts   = resolveInt('maxAttempts');
+
+if (concurrency === 0) fail('concurrency', 'Tidak boleh 0.');
+if (gasLimit    === 0) fail('gasLimit',    'Tidak boleh 0.');
+
+// ── Validasi: telegram (opsional, tapi harus sepasang) ───────────────────────
+const tg = raw.telegram || {};
+const tgToken  = tg.token  || '';
+const tgChatId = tg.chatId || '';
+if (tgToken && !tgChatId) fail('telegram.chatId', 'Wajib diisi jika "telegram.token" sudah diset.');
+if (tgChatId && !tgToken) fail('telegram.token',  'Wajib diisi jika "telegram.chatId" sudah diset.');
+
+// ── Export config final yang sudah bersih ────────────────────────────────────
+module.exports = {
+  destinationAddress: dest,
+  providerURL:        urls.length === 1 ? urls[0] : urls,
+  concurrency,
+  gasLimit,
+  retryLimit,
+  retryDelay,
+  statsInterval,
+  maxAttempts,
+  telegram: { token: tgToken, chatId: tgChatId },
+};
