@@ -1,0 +1,20 @@
+{
+  "destinationAddress": "ISI_ALAMAT_ETH_KAMU_DISINI",  ← ganti ini
+  "providerURL": [
+    "https://rpc.sepolia.org",                          ← sudah terisi
+    "https://ethereum-sepolia-rpc.publicnode.com",      ← backup otomatis
+    "https://sepolia.drpc.org"                          ← backup otomatis
+  ],
+
+  "concurrency": 20,      ← 20 worker paralel
+  "gasLimit": 21000,      ← gas standar ETH transfer
+  "retryLimit": 3,        ← retry 3x jika RPC error
+  "retryDelay": 500,      ← jeda 500ms antar retry
+  "statsInterval": 2000,  ← update stats tiap 2 detik
+  "maxAttempts": 0,       ← 0 = jalan terus tanpa batas
+
+  "telegram": {
+    "token": "",           ← opsional
+    "chatId": ""           ← opsional
+  }
+}
