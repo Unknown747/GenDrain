@@ -10,14 +10,63 @@ let raw;
 try {
   raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 } catch (err) {
-  throw new Error(`Gagal membaca config.json: ${err.message}`);
+  throw new Error(
+    `\n[Draino] Gagal membaca config.json: ${err.message}\n` +
+    `Pastikan file config.json ada di root folder.\n`
+  );
 }
 
+// ── Helper error ─────────────────────────────────────────────────────────────
 function fail(field, pesan) {
-  throw new Error(`\n[config.json] "${field}": ${pesan}\n`);
+  throw new Error(`\n[config.json → "${field}"] ${pesan}\n`);
 }
 
-// ── Default untuk semua field opsional ───────────────────────────────────────
+function isPlaceholder(val) {
+  if (!val || typeof val !== 'string') return true;
+  const v = val.trim();
+  return (
+    v === '' ||
+    v.startsWith('ISI_') ||
+    v.startsWith('0xYOUR') ||
+    v.startsWith('MASUK') ||
+    v.toUpperCase().includes('KAMU') ||
+    v.toUpperCase().includes('YOUR')
+  );
+}
+
+// ── 1. destinationAddress (WAJIB) ────────────────────────────────────────────
+if (isPlaceholder(raw.destinationAddress)) {
+  fail(
+    'destinationAddress',
+    'Belum diisi!\n  Ganti nilai di config.json dengan alamat ETH tujuan kamu.\n  Contoh: "destinationAddress": "0xAbCd1234..."'
+  );
+}
+if (!ethers.utils.isAddress(raw.destinationAddress)) {
+  fail(
+    'destinationAddress',
+    `Bukan alamat Ethereum yang valid.\n  Diterima : "${raw.destinationAddress}"\n  Contoh   : "0xAbCd1234...efGh5678"`
+  );
+}
+
+// ── 2. providerURL (WAJIB) ───────────────────────────────────────────────────
+if (!raw.providerURL || isPlaceholder(raw.providerURL)) {
+  fail(
+    'providerURL',
+    'Belum diisi!\n  Contoh: "providerURL": "https://rpc.sepolia.org"'
+  );
+}
+const rawUrls = Array.isArray(raw.providerURL) ? raw.providerURL : [raw.providerURL];
+if (rawUrls.length === 0) {
+  fail('providerURL', 'Tidak boleh array kosong.');
+}
+rawUrls.forEach((url, i) => {
+  const label = rawUrls.length > 1 ? `providerURL[${i}]` : 'providerURL';
+  if (typeof url !== 'string' || !url.startsWith('http')) {
+    fail(label, `Bukan URL yang valid → "${url}"`);
+  }
+});
+
+// ── 3. Field angka — pakai default jika tidak diisi ──────────────────────────
 const DEFAULTS = {
   concurrency:   20,
   gasLimit:      21000,
@@ -27,37 +76,11 @@ const DEFAULTS = {
   maxAttempts:   0,
 };
 
-// ── Validasi: destinationAddress (WAJIB) ─────────────────────────────────────
-const dest = raw.destinationAddress;
-if (!dest || dest.trim() === '' || dest.startsWith('ISI_')) {
-  fail('destinationAddress', 'Belum diisi. Masukkan alamat ETH tujuan kamu.');
-}
-if (!ethers.utils.isAddress(dest)) {
-  fail('destinationAddress', `Bukan alamat Ethereum yang valid → "${dest}"`);
-}
-
-// ── Validasi: providerURL (WAJIB) ────────────────────────────────────────────
-const rawUrl = raw.providerURL;
-if (!rawUrl || (typeof rawUrl === 'string' && rawUrl.trim() === '') || rawUrl.startsWith('ISI_')) {
-  fail('providerURL', 'Belum diisi. Masukkan URL RPC Sepolia kamu.');
-}
-if (Array.isArray(rawUrl) && rawUrl.length === 0) {
-  fail('providerURL', 'Tidak boleh array kosong.');
-}
-const urls = Array.isArray(rawUrl) ? rawUrl : [rawUrl];
-urls.forEach((url, i) => {
-  const label = urls.length > 1 ? `providerURL[${i}]` : 'providerURL';
-  if (typeof url !== 'string' || !url.startsWith('http')) {
-    fail(label, `Bukan URL yang valid → "${url}"`);
-  }
-});
-
-// ── Validasi & terapkan default untuk field angka ────────────────────────────
 function resolveInt(key) {
   const val = raw[key];
   if (val === undefined || val === null) return DEFAULTS[key];
   if (!Number.isInteger(val) || val < 0) {
-    fail(key, `Harus bilangan bulat >= 0, diterima: ${val}`);
+    fail(key, `Harus bilangan bulat >= 0. Diterima: ${JSON.stringify(val)}`);
   }
   return val;
 }
@@ -69,20 +92,21 @@ const retryDelay    = resolveInt('retryDelay');
 const statsInterval = resolveInt('statsInterval');
 const maxAttempts   = resolveInt('maxAttempts');
 
-if (concurrency === 0) fail('concurrency', 'Tidak boleh 0.');
-if (gasLimit    === 0) fail('gasLimit',    'Tidak boleh 0.');
+if (concurrency === 0) fail('concurrency', 'Tidak boleh 0. Minimal 1.');
+if (gasLimit    === 0) fail('gasLimit',    'Tidak boleh 0. Gunakan minimal 21000.');
 
-// ── Validasi: telegram (opsional, tapi harus sepasang) ───────────────────────
-const tg = raw.telegram || {};
-const tgToken  = tg.token  || '';
-const tgChatId = tg.chatId || '';
-if (tgToken && !tgChatId) fail('telegram.chatId', 'Wajib diisi jika "telegram.token" sudah diset.');
-if (tgChatId && !tgToken) fail('telegram.token',  'Wajib diisi jika "telegram.chatId" sudah diset.');
+// ── 4. Telegram (opsional, harus sepasang) ───────────────────────────────────
+const tg       = (typeof raw.telegram === 'object' && raw.telegram) ? raw.telegram : {};
+const tgToken  = typeof tg.token  === 'string' ? tg.token.trim()  : '';
+const tgChatId = typeof tg.chatId === 'string' ? tg.chatId.trim() : '';
 
-// ── Export config final yang sudah bersih ────────────────────────────────────
+if (tgToken  && !tgChatId) fail('telegram.chatId', 'Wajib diisi jika "token" sudah diset.');
+if (tgChatId && !tgToken)  fail('telegram.token',  'Wajib diisi jika "chatId" sudah diset.');
+
+// ── Export final ─────────────────────────────────────────────────────────────
 module.exports = {
-  destinationAddress: dest,
-  providerURL:        urls.length === 1 ? urls[0] : urls,
+  destinationAddress: raw.destinationAddress.trim(),
+  providerURL:        rawUrls.length === 1 ? rawUrls[0] : rawUrls,
   concurrency,
   gasLimit,
   retryLimit,
