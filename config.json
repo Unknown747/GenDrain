@@ -1,5 +1,5 @@
 {
-  "destinationAddress": "ISI_ALAMAT_ETH_KAMU_DISINI",
+  "destinationAddress": "0x3aEc8A0D0bFE009D065313671a0C324d411C6225",
   "providerURL": [
     "https://rpc.sepolia.org",
     "https://ethereum-sepolia-rpc.publicnode.com",

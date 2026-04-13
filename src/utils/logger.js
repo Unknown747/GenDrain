@@ -64,17 +64,18 @@ function formatElapsed(ms) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
-function printStats(total, found, ratePerSec, elapsedMs) {
+function printStats(total, found, ratePerSec, elapsedMs, rpcErrors) {
   const bar     = '█'.repeat(Math.min(15, Math.floor(Number(ratePerSec))));
   const elapsed = formatElapsed(elapsedMs);
+  const errPart = rpcErrors > 0 ? ` | RPC Err: \x1b[31m${rpcErrors}\x1b[0m` : '';
   const line    =
     `\r\x1b[K` +
     `[Draino] ` +
     `Attempt: \x1b[36m${total}\x1b[0m | ` +
     `Found: \x1b[33m${found}\x1b[0m | ` +
     `Speed: \x1b[32m${ratePerSec}/s\x1b[0m | ` +
-    `Uptime: \x1b[35m${elapsed}\x1b[0m ` +
-    `\x1b[32m${bar}\x1b[0m`;
+    `Uptime: \x1b[35m${elapsed}\x1b[0m` +
+    errPart + ` \x1b[32m${bar}\x1b[0m`;
   process.stdout.write(line);
 }
 
